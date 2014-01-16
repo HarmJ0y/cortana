@@ -1,0 +1,56 @@
+#
+# Add useful reference links to the help menu.
+#
+# Adapted from https://github.com/rsmudge/cortana-scripts/tree/master/references
+#
+# by @harmj0y
+
+sub url {
+    return @($1, lambda({ url_open($url) }, $url => $2));
+}
+
+popup help {
+    menu "References" {
+
+        menu "SQL Injection Cheat Sheets"{
+            @items = @(
+                url("MSSQL", "http://pentestmonkey.net/cheat-sheet/sql-injection/mssql-sql-injection-cheat-sheet"),
+                url("MySQL", "http://pentestmonkey.net/cheat-sheet/sql-injection/mysql-sql-injection-cheat-sheet")
+                url("Oracle", "http://pentestmonkey.net/cheat-sheet/sql-injection/oracle-sql-injection-cheat-sheet"),
+                url("Postgres", "http://pentestmonkey.net/cheat-sheet/sql-injection/postgres-sql-injection-cheat-sheet")
+            ); 
+            foreach $item (@items) { item($item[0], $item[1]); }
+        }
+
+        menu "Tool Cheat Sheets" {
+            @items = @(
+                url("Reverse Shell Cheat Sheet", "http://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet"),
+                url("SSH Cheat Sheet", "http://pentestmonkey.net/cheat-sheet/ssh-cheat-sheet"),
+                url("Netcat Cheat Sheet", "http://www.sans.org/security-resources/sec560/netcat_cheat_sheet_v1.pdf"),
+                url("Windows Command Line Tools", "http://www.sans.org/security-resources/sec560/windows_command_line_sheet_v1.pdf"),
+            );
+            foreach $item (@items) { item($item[0], $item[1]); }
+        }
+
+        menu "Cobalt Strike"{
+            @items = @(
+                url("Manual", "http://www.advancedpentest.com/downloads/csmanual148.pdf"),
+                url("Armitage's Console", "http://blog.strategiccyber.com/2013/10/31/getting-the-most-from-armitages-console/"),
+                url("Beacon - Operator's Guide", "http://blog.strategiccyber.com/2013/09/12/beacon-an-operators-guide/"),
+                url("Situational Awareness", "http://blog.strategiccyber.com/2013/07/25/situational-awareness-for-meterpreter-users/"),
+                url("Red Team Data Collection", "http://blog.strategiccyber.com/2013/06/13/red-team-data-collection/"),
+                url("Feature References", "http://www.advancedpentest.com/support")
+            );
+            foreach $item (@items) { item($item[0], $item[1]); }
+        }
+
+        @items = @(
+            url("pwnwiki", "http://pwnwiki.io/#!index.md"),
+            url("Raffi's schtask 1-liners", "http://blog.strategiccyber.com/2013/11/09/schtasks-persistence-with-powershell-one-liners/")
+            url("Windows Privesc Cheat Sheet", "http://webcache.googleusercontent.com/search?q=cache:yF0FTCKp_B8J:it-ovid.blogspot.com/2012/02/windows-privilege-escalation.html"),
+            url("Webapp HH Checklist", "http://mdsec.net/wahh/tasks.html"),
+            url("Shivvy Gists", "https://gist.github.com/themightyshiv")
+        );
+        foreach $item (@items) { item($item[0], $item[1]); }
+    }
+}
