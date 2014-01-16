@@ -3,5 +3,4 @@
 #
 
 include(script_resource("./veil_evasion/veil_evasion.cna"));
-include(script_resource("./nmap_xml/nmap_xml.cna"));
 include(script_resource("./references/references.cna"));
