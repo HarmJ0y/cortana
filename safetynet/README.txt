@@ -2,7 +2,8 @@ This Cortana script allows users to automatically inject 'safetynet'
 payloads into new or existing meterpreter sessions.
 
 The included smart_payload_inject.rb metasploit modules needs to be 
-loaded into the teamserver's metasploit installation for injection
+loaded into the teamserver's metasploit installation under
+./metasploit-framework/modules/post/windows/manage/ for injection
 to work properly.
 
 The main menu is exposed to "Cobalt Strike" -> "Safetynet", as well as a 

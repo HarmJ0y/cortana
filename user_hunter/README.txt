@@ -3,7 +3,8 @@ The user_hunter.cna cortana script continually polls the metasploit
 database for notes output by the user_hunter.rb module.
 
 The included user_hunter.rb module needs to be loaded into the teamserver's 
-metasploit installation for proper use.
+metasploit installation under
+./metasploit-framework/modules/post/windows/gather/ for proper use.
 
 Right clicking a Meterpreter session exposes a contextual menu
 to launch the module.
