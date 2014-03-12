@@ -75,7 +75,7 @@ filter host_image {
         }
         else{
             # otherwise assume the resource is in the script location
-            push($1, script_resource("user_yellow..png"));
+            push($1, script_resource("user_yellow.png"));
         }
 
         # change the host label
