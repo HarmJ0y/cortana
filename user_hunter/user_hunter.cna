@@ -67,7 +67,18 @@ filter host_image {
 
     # if the host rendering is in our found list, change the icon
     if ($address in %hostsusers){
-        push($1, script_resource("user_yellow.png"));
+
+        # check if the .png script resource is in a subdirectory (for load_all.cna)
+        if (-exists script_resource("/user_hunter/user_yellow.png")){
+            # change its host icon
+            push($1, script_resource("/user_hunter/user_yellow.png"));
+        }
+        else{
+            # otherwise assume the resource is in the script location
+            push($1, script_resource("user_yellow..png"));
+        }
+
+        # change the host label
         %label[$address] = %hostsusers[$address];
         
         # change the label for this host to include the user name found

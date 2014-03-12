@@ -32,8 +32,15 @@ filter host_image {
 
     # if this address has an active beacon
     if ($address in %beaconHosts){
-        # change its host icon
-        push($1, script_resource("beacon_image.png"));
+        # check if the .png script resource is in a subdirectory (for load_all.cna)
+        if (-exists script_resource("/beacon/beacon_image.png")){
+            # change its host icon
+            push($1, script_resource("/beacon/beacon_image.png"));
+        }
+        else{
+            # otherwise assume the resource is in the script location
+            push($1, script_resource("beacon_image.png"));
+        }
     }
     return @_;
 }
