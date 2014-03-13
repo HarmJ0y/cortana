@@ -242,7 +242,7 @@ on meterpreter_wdigest {
             $pw = $result["Password"];
             
             println("[*] Mimikatz $sessionhost session $1 : $domainuser $pw");
-            credential_add(session_host($1), 445, $domainuser, $pw, "wdigest");
+            credential_add(session_host($1), 445, $result["User"], $pw, "wdigest");
             
             # accounce to the group chat
             say("[*] Mimikatz $sessionhost session $1 -> $domainuser $pw");
