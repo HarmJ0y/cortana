@@ -73,7 +73,6 @@ on heartbeat_5s {
             host_add($internal);
         }
 
-        # grab the current host label
         $currentLabel = host_data($internal)['label'];
         %label[$internal] = $currentLabel;
 

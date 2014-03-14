@@ -450,7 +450,7 @@ popup main_middle {
 }
 
 # add in our custom action options to a host
-popup host_bottom {
+popup meterpreter_top {
     item "Install Safetynets" {
         install_safetynets($1);
     }
