@@ -1,5 +1,5 @@
 
-# Safetynet v1.0
+# Safetynet v1.1
 #
 # See README.txt for more details
 #
@@ -8,7 +8,7 @@
 
 global('@safetynets $autorun $table');
 @safetynets = @();
-$autorun = 0; # autorun defaults to on
+$autorun = 1; # don't default to autorun
 
 
 ###################################################
