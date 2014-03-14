@@ -73,8 +73,16 @@ on heartbeat_5s {
             host_add($internal);
         }
 
-        # change the host label for this host to indicate a beacon is present
-        %label[$internal] = "beacon";
+        # grab the current host label
+        $currentLabel = host_data($internal)['label'];
+        %label[$internal] = $currentLabel;
+
+        # if this host isn't marked as a beacon, mark it
+        if ("beacon-*" !iswm $currentLabel){
+            %label[$internal] = "beacon-$currentLabel";
+        }
+
+        # push the new/existing label
         call_async("db.report_labels", %label);
     }
 
@@ -85,13 +93,15 @@ on heartbeat_5s {
     foreach $address ($addresses){
 
         # grab the host's label
-        $label = host_data($address)['label'];
+        $currentLabel = host_data($address)['label'];
 
         # if the host is not in our active beacon list
         if ($address !in %beaconHosts){
-            # if the label is "beacon", clear it out
-            if ( $label eq "beacon"){
-                %label[$address] = "";
+            # if the label is "beacon-", reset the label to the original value
+            if ( "beacon-*" iswm $currentLabel){
+                # cut out the "beacon-" section
+                %label[$address] = substr($currentLabel,7);
+                # push the new label
                 call_async("db.report_labels", %label);
             }
         }
@@ -134,15 +144,22 @@ popup host_bottom {
                     call('beacon.remove', $beaconID);
                     
                     # clear out the label
-                    %label[$address] = "";
+                    $currentLabel = host_data($address)['label'];
+                    %label[$address] = $currentLabel;
+
+                    if ( "beacon-*" iswm $currentLabel){
+                        # cut out the "beacon-" section
+                        %label[$address] = substr($currentLabel,7);
+                    }
+
+                    # push the old label back in
                     call_async("db.report_labels", %label);
 
                     # finally, remove this from our beacon internal list
                     removeAt(%beaconHosts, $address);
                 }
-
             }
-
+            
         }
     }
 }
