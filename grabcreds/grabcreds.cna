@@ -14,7 +14,7 @@
 
 global('@targetusers $autorun');
 @targetusers = @();
-$autorun = 0;
+$autorun = 1; # config autorun off
 
 
 ###################################################
