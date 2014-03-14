@@ -46,11 +46,16 @@ filter host_image {
 }
 
 # check the database for beacons every 5 seconds
+# TODO: refresh the beaconHosts list with the active beacon list
 on heartbeat_5s {
 
     # get all the active beacons from the database
     @beacons = call('beacon.list');
 
+    # reset the internal beacon list
+    %beaconHosts = %();
+
+    # rebuild the internal beacon list
     foreach %beacon (@beacons) {
         # %beacon => ($id, $computer, $host, $last, $external, $pid, $user, $internal)
 
@@ -58,10 +63,7 @@ on heartbeat_5s {
         $internal = %beacon["internal"];
 
         if ($internal ne ""){
-            # if the beacon already isn't in our internal list, add it
-            if ($internal !in @beaconHosts){
-                %beaconHosts[$internal] = %beacon["id"];
-            }
+            %beaconHosts[$internal] = %beacon["id"];
         }
 
         # if this beacon host isn't currently in the database, add it
@@ -75,6 +77,27 @@ on heartbeat_5s {
         %label[$internal] = "beacon";
         call_async("db.report_labels", %label);
     }
+
+    # grab all active session addresses
+    $addresses = host_addresses();
+
+    # iterate through all of our active addresses
+    foreach $address ($addresses){
+
+        # grab the host's label
+        $label = host_data($address)['label'];
+
+        # if the host is not in our active beacon list
+        if ($address !in %beaconHosts){
+            # if the label is "beacon", clear it out
+            if ( $label eq "beacon"){
+                %label[$address] = "";
+                call_async("db.report_labels", %label);
+            }
+        }
+
+    }
+
 }
 
 # expose a remove menu for hosts
