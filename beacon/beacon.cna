@@ -162,3 +162,8 @@ popup host_bottom {
         }
     }
 }
+
+# create a nice keyboard shortcut to open the beacon browser tab
+bind Ctrl+B {
+    open_beacon_browser();
+}
