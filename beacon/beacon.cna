@@ -77,8 +77,8 @@ on heartbeat_5s {
         %label[$internal] = $currentLabel;
 
         # if this host isn't marked as a beacon, mark it
-        if ("beacon-*" !iswm $currentLabel){
-            %label[$internal] = "beacon-$currentLabel";
+        if ("beacon *" !iswm $currentLabel){
+            %label[$internal] = "beacon $currentLabel";
         }
 
         # push the new/existing label
@@ -96,9 +96,9 @@ on heartbeat_5s {
 
         # if the host is not in our active beacon list
         if ($address !in %beaconHosts){
-            # if the label is "beacon-", reset the label to the original value
-            if ( "beacon-*" iswm $currentLabel){
-                # cut out the "beacon-" section
+            # if the label is "beacon ", reset the label to the original value
+            if ( "beacon *" iswm $currentLabel){
+                # cut out the "beacon " section
                 %label[$address] = substr($currentLabel,7);
                 # push the new label
                 call_async("db.report_labels", %label);
@@ -146,8 +146,8 @@ popup host_bottom {
                     $currentLabel = host_data($address)['label'];
                     %label[$address] = $currentLabel;
 
-                    if ( "beacon-*" iswm $currentLabel){
-                        # cut out the "beacon-" section
+                    if ( "beacon *" iswm $currentLabel){
+                        # cut out the "beacon " section
                         %label[$address] = substr($currentLabel,7);
                     }
 
