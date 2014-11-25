@@ -135,7 +135,7 @@ popup host_bottom {
                     $beaconID = %beaconHosts[$address];
                     task_powerup($beaconID);
                 }
-                item "Invoke-WMI" {
+                item "Invoke-MassWMI" {
                     $beaconID = %beaconHosts[$address];
                     wmi_dialog($beaconID);
                 }
